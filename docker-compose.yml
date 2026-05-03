@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  map-app:
+    build:
+      context: .
+      args:
+        VITE_MAPTILER_API_KEY: ${VITE_MAPTILER_API_KEY:-}
+    ports:
+      - "8080:80"
+    restart: unless-stopped

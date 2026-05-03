@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"https://api.maptiler.com/maps/topo/style.json?key=iouKsdo83pS0o52bHjOk\")",
+      "Bash(python3 -c ' *)",
+      "WebSearch"
+    ]
+  }
+}

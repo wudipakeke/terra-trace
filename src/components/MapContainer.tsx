@@ -4,8 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useMapStore } from '../store/useMapStore';
 import { DrawingOverlay } from './DrawingOverlay';
 
-const AMAP_KEY = import.meta.env.VITE_AMAP_API_KEY || '';
 const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_API_KEY || '';
+const MAP_STYLE = 'outdoor';
 
 function addContourLayers(map: maplibregl.Map) {
   if (map.getSource('contours')) return;
@@ -19,7 +19,6 @@ function addContourLayers(map: maplibregl.Map) {
   const firstSymbol = layers?.find((l) => l.type === 'symbol');
   const beforeId = firstSymbol?.id;
 
-  // Minor contours (every non-5th)
   map.addLayer(
     {
       id: 'contour-lines-minor',
@@ -36,7 +35,6 @@ function addContourLayers(map: maplibregl.Map) {
     beforeId,
   );
 
-  // Major contours (every 5th, with elevation label)
   map.addLayer(
     {
       id: 'contour-lines-major',
@@ -88,178 +86,120 @@ function removeContourLayers(map: maplibregl.Map) {
 
 export function MapContainer() {
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const mapProvider = useMapStore((s) => s.mapProvider);
-  const amapMapType = useMapStore((s) => s.amapMapType);
-  const amapShowRoadNet = useMapStore((s) => s.amapShowRoadNet);
-  const maplibreStyle = useMapStore((s) => s.maplibreStyle);
-  const terrainEnabled = useMapStore((s) => s.terrainEnabled);
-  const maplibrePitch = useMapStore((s) => s.maplibrePitch);
-  const showContours = useMapStore((s) => s.showContours);
-  const setMap = useMapStore((s) => s.setMap);
-  const initKey = useRef(0);
   const maplibreRef = useRef<maplibregl.Map | null>(null);
 
+  const showContours = useMapStore((s) => s.showContours);
+  const showMapView = useMapStore((s) => s.showMapView);
+  const mapOpacity = useMapStore((s) => s.mapOpacity);
+  const setMap = useMapStore((s) => s.setMap);
+  const storedMap = useMapStore((s) => s.map);
+
+  // Initialize MapLibre map (once)
   useEffect(() => {
     const div = containerRef.current;
-    if (!div) return;
+    if (!div || maplibreRef.current) return;
 
-    const key = ++initKey.current;
-    setMap(null);
+    const viewport = useMapStore.getState().mapViewport;
+    const m = new maplibregl.Map({
+      container: div,
+      style: `https://api.maptiler.com/maps/${MAP_STYLE}/style.json?key=${MAPTILER_KEY}`,
+      center: [viewport.center.lng, viewport.center.lat],
+      zoom: viewport.zoom,
+      pitch: 0,
+      bearing: 0,
+    });
+    maplibreRef.current = m;
 
-    // Cleanup previous MapLibre instance
-    if (maplibreRef.current) {
-      maplibreRef.current.remove();
-      maplibreRef.current = null;
-    }
+    m.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-    div.innerHTML = '';
-
-    if (mapProvider === 'amap') {
-      if (!AMAP_KEY) return;
-      const script = document.createElement('script');
-      script.src = `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}`;
-      script.async = true;
-      script.onload = () => {
-        if (initKey.current !== key || !containerRef.current) return;
-
-        if (amapMapType === 'satellite') {
-          const layers: any[] = [new AMap.TileLayer.Satellite()];
-          if (amapShowRoadNet) {
-            layers.push(new AMap.TileLayer.RoadNet());
-          }
-          const m = new AMap.Map(containerRef.current, {
-            center: [116.397428, 39.90923],
-            zoom: 12,
-            layers,
-            viewMode: '3D',
-            pitch: 0,
-          });
-          setMap(m);
-        } else {
-          const m = new AMap.Map(containerRef.current, {
-            center: [116.397428, 39.90923],
-            zoom: 12,
-            viewMode: '2D',
-          });
-          setMap(m);
-        }
-      };
-      document.head.appendChild(script);
-    } else {
-      // MapLibre GL JS with MapTiler
-      if (!MAPTILER_KEY) return;
-
-      const m = new maplibregl.Map({
-        container: containerRef.current,
-        style: `https://api.maptiler.com/maps/${maplibreStyle}/style.json?key=${MAPTILER_KEY}`,
-        center: [116.397428, 39.90923],
-        zoom: 12,
-        pitch: 0,
-        bearing: 0,
-      });
-      maplibreRef.current = m;
-
-      m.addControl(new maplibregl.NavigationControl(), 'bottom-right');
-
-      m.on('load', () => {
-        if (initKey.current !== key) return;
-
-        // Add DEM source for 3D terrain
-        if (!m.getSource('terrain-source')) {
+    m.on('load', () => {
+      // Switch to Chinese labels where available
+      const styleLayers = m.getStyle().layers;
+      for (const layer of styleLayers) {
+        const layout = layer.layout as Record<string, any> | undefined;
+        const tf: unknown = layout?.['text-field'];
+        if (tf && typeof tf === 'string' && (tf as string).includes('{name:')) {
           try {
-            m.addSource('terrain-source', {
-              type: 'raster-dem',
-              url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPTILER_KEY}`,
-              tileSize: 256,
-            });
+            m.setLayoutProperty(layer.id, 'text-field', [
+              'case',
+              ['!=', ['get', 'name:zh-Hans'], ''],
+              ['get', 'name:zh-Hans'],
+              ['get', 'name:latin'],
+            ]);
           } catch {}
         }
+      }
 
-        // Apply terrain and pitch settings
-        if (terrainEnabled) {
-          try {
-            m.setTerrain({ source: 'terrain-source', exaggeration: 1.5 });
-          } catch {}
-        }
-        if (maplibrePitch > 0) {
-          m.setPitch(maplibrePitch);
-        }
+      if (useMapStore.getState().showContours) {
+        addContourLayers(m);
+      }
 
-        // Switch text layers to prefer Chinese labels
-        const styleLayers = m.getStyle().layers;
-        for (const layer of styleLayers) {
-          const layout = layer.layout as Record<string, any> | undefined;
-          const tf: unknown = layout?.['text-field'];
-          if (tf && typeof tf === 'string' && (tf as string).includes('{name:')) {
-            try {
-              m.setLayoutProperty(layer.id, 'text-field', [
-                'case',
-                ['!=', ['get', 'name:zh-Hans'], ''],
-                ['get', 'name:zh-Hans'],
-                ['get', 'name:latin'],
-              ]);
-            } catch {}
-          }
-        }
-
-        // Add contour overlay if enabled
-        if (showContours) {
-          addContourLayers(m);
-        }
-
-        setMap(m);
-      });
-
-      m.on('error', (e) => {
-        console.error('MapLibre error:', e.error?.message || e);
-      });
-    }
-  }, [mapProvider, amapMapType, amapShowRoadNet, maplibreStyle, setMap]);
-
-  // Live updates for terrain/pitch on existing MapLibre map
-  useEffect(() => {
-    const m = maplibreRef.current;
-    if (!m || mapProvider !== 'maplibre') return;
-
-    if (!m.getSource('terrain-source')) {
-      try {
-        m.addSource('terrain-source', {
-          type: 'raster-dem',
-          url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPTILER_KEY}`,
-          tileSize: 256,
+      // Persist viewport
+      m.on('moveend', () => {
+        const c = m.getCenter();
+        useMapStore.getState().setMapViewport({
+          center: { lat: c.lat, lng: c.lng },
+          zoom: m.getZoom(),
         });
-      } catch {}
-    }
+      });
 
-    if (terrainEnabled) {
-      try {
-        m.setTerrain({ source: 'terrain-source', exaggeration: 1.5 });
-      } catch {}
-    } else {
-      try {
-        m.setTerrain(null);
-      } catch {}
-    }
+      setMap(m);
+    });
 
-    m.setPitch(maplibrePitch);
-  }, [terrainEnabled, maplibrePitch, mapProvider]);
+    m.on('error', (e) => {
+      console.error('MapLibre error:', e.error?.message || e);
+    });
 
-  // Live toggle for contour overlay
+    return () => {
+      try { m.remove(); } catch {}
+      maplibreRef.current = null;
+      setMap(null);
+    };
+  }, [setMap]);
+
+  // Contour toggle on existing map
   useEffect(() => {
-    const m = maplibreRef.current;
-    if (!m || mapProvider !== 'maplibre') return;
+    if (!storedMap) return;
+    try {
+      if (showContours) {
+        addContourLayers(storedMap);
+      } else {
+        removeContourLayers(storedMap);
+      }
+    } catch {}
+  }, [showContours, storedMap]);
 
-    if (showContours) {
-      addContourLayers(m);
-    } else {
-      removeContourLayers(m);
+  // Map opacity
+  useEffect(() => {
+    if (!storedMap) return;
+    const container = storedMap.getContainer();
+    if (container) {
+      container.style.opacity = String(mapOpacity);
     }
-  }, [showContours, mapProvider]);
+  }, [mapOpacity, storedMap]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          opacity: showMapView ? 1 : 0,
+          transition: 'opacity 0.3s ease',
+          pointerEvents: showMapView ? 'auto' : 'none',
+        }}
+      >
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        {!storedMap && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            background: '#f5f0e8', color: '#999', fontSize: 14,
+          }}>
+            加载地图中...
+          </div>
+        )}
+      </div>
       <DrawingOverlay />
     </div>
   );

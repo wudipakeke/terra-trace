@@ -1,26 +1,38 @@
 import { create } from 'zustand';
-import type { DrawingElement, Layer, ToolType } from '../types';
+import { persist } from 'zustand/middleware';
+import type { DrawingElement, ToolType, TracingProject, ProjectMapType, TerrainType, MapViewport, BrushMode, EraserMode, LineWidthMode, ExportOptions } from '../types';
+import { DEFAULT_EXPORT_OPTIONS } from '../types';
 
-function genLayerId(): string {
-  return `layer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+function genId(): string {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 interface MapStore {
-  // Map instance
+  // Navigation
+  page: 'landing' | 'editor';
+  setPage: (page: 'landing' | 'editor') => void;
+
+  // Projects
+  projects: TracingProject[];
+  currentProjectId: string | null;
+  createProject: (name: string, mapType: ProjectMapType, backgroundColor: string) => string;
+  updateProject: (id: string, updates: Partial<Pick<TracingProject, 'name' | 'backgroundColor'>>) => void;
+  deleteProject: (id: string) => void;
+  openProject: (id: string) => void;
+  closeProject: () => void;
+  currentProject: () => TracingProject | undefined;
+
+  // Map instance (runtime only, not persisted)
   map: any;
   setMap: (map: any) => void;
 
-  // Provider switching
+  // Map engine settings (derived from project)
   mapProvider: 'amap' | 'maplibre';
   setMapProvider: (p: 'amap' | 'maplibre') => void;
-
-  // AMap settings
   amapMapType: 'satellite' | 'normal';
   setAmapMapType: (t: 'satellite' | 'normal') => void;
   amapShowRoadNet: boolean;
   setAmapShowRoadNet: (s: boolean) => void;
-
-  // MapLibre (MapTiler) settings
   maplibreStyle: string;
   setMaplibreStyle: (s: string) => void;
   terrainEnabled: boolean;
@@ -30,16 +42,9 @@ interface MapStore {
   showContours: boolean;
   setShowContours: (b: boolean) => void;
 
-  // Layers
-  layers: Layer[];
-  activeLayerId: string | null;
-  addLayer: (name: string, backgroundColor: string) => void;
-  removeLayer: (id: string) => void;
-  setActiveLayer: (id: string) => void;
-  toggleLayerVisibility: (id: string) => void;
-  renameLayer: (id: string, name: string) => void;
-
-  activeLayer: () => Layer | undefined;
+  // Map view toggle
+  showMapView: boolean;
+  setShowMapView: (show: boolean) => void;
 
   // Tool
   activeTool: ToolType;
@@ -67,150 +72,320 @@ interface MapStore {
   selectedIcon: string;
   setSelectedIcon: (icon: string) => void;
 
-  // Elements
+  // Brush mode (unified brush: solid or texture)
+  brushMode: BrushMode;
+  setBrushMode: (mode: BrushMode) => void;
+
+  // Eraser mode
+  eraserMode: EraserMode;
+  setEraserMode: (mode: EraserMode) => void;
+
+  // Line width scaling
+  lineWidthMode: LineWidthMode;
+  setLineWidthMode: (mode: LineWidthMode) => void;
+
+  // Terrain brush
+  selectedTerrainType: TerrainType;
+  setSelectedTerrainType: (type: TerrainType) => void;
+  terrainBrushSize: number;
+  setTerrainBrushSize: (size: number) => void;
+
+  // Territory tool
+  territoryColor: string;
+  setTerritoryColor: (color: string) => void;
+
+  // Map opacity (0-1)
+  mapOpacity: number;
+  setMapOpacity: (opacity: number) => void;
+
+  // Show decorative border
+  showBorder: boolean;
+  setShowBorder: (show: boolean) => void;
+
+  // Export options
+  exportOptions: ExportOptions;
+  setExportOptions: (opts: ExportOptions) => void;
+
+  // Elements (operate on current project)
   addElement: (element: DrawingElement) => void;
   removeElement: (elementId: string) => void;
   updateElement: (elementId: string, updates: Partial<DrawingElement>) => void;
 
-  // Undo
-  undoStack: { layerId: string; elementId: string }[];
+  // Map viewport persistence
+  mapViewport: MapViewport;
+  setMapViewport: (viewport: MapViewport) => void;
+
+  // Undo / Redo
+  undoStack: { projectId: string; element: DrawingElement }[];
+  redoStack: { projectId: string; element: DrawingElement }[];
   undo: () => void;
+  redo: () => void;
 }
 
-export const useMapStore = create<MapStore>((set, get) => ({
-  map: null,
-  setMap: (map) => set({ map }),
+function applyProjectConfig(project: TracingProject) {
+  const config = PROJECT_MAP_CONFIGS[project.mapType];
+  return config ?? { mapProvider: 'amap' as const, amapMapType: 'normal' as const };
+}
 
-  mapProvider: 'amap',
-  setMapProvider: (p) => set({ mapProvider: p }),
+const PROJECT_MAP_CONFIGS: Record<ProjectMapType, {
+  mapProvider: 'amap' | 'maplibre';
+  amapMapType?: 'satellite' | 'normal';
+  amapShowRoadNet?: boolean;
+  maplibreStyle?: string;
+  showContours?: boolean;
+}> = {
+  'amap-normal': { mapProvider: 'amap', amapMapType: 'normal' },
+  'amap-satellite': { mapProvider: 'amap', amapMapType: 'satellite', amapShowRoadNet: true },
+  'maplibre-outdoor-contour': { mapProvider: 'maplibre', maplibreStyle: 'outdoor', showContours: true },
+};
 
-  amapMapType: 'normal',
-  setAmapMapType: (t) => set({ amapMapType: t }),
-  amapShowRoadNet: true,
-  setAmapShowRoadNet: (s) => set({ amapShowRoadNet: s }),
+export const useMapStore = create<MapStore>()(
+  persist(
+    (set, get) => ({
+      // Navigation
+      page: 'landing',
+      setPage: (page) => set({ page }),
 
-  maplibreStyle: 'topo',
-  setMaplibreStyle: (s) => set({ maplibreStyle: s }),
-  terrainEnabled: false,
-  setTerrainEnabled: (b) => set({ terrainEnabled: b }),
-  maplibrePitch: 0,
-  setMaplibrePitch: (p) => set({ maplibrePitch: p }),
-  showContours: false,
-  setShowContours: (b) => set({ showContours: b }),
+      // Projects
+      projects: [],
+      currentProjectId: null,
+      createProject: (name, mapType, backgroundColor) => {
+        const id = genId();
+        const project: TracingProject = {
+          id,
+          name,
+          mapType,
+          backgroundColor,
+          elements: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        set((s) => ({
+          projects: [...s.projects, project],
+        }));
+        return id;
+      },
+      updateProject: (id, updates) => {
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
+          ),
+        }));
+      },
+      deleteProject: (id) => {
+        set((s) => ({
+          projects: s.projects.filter((p) => p.id !== id),
+          currentProjectId: s.currentProjectId === id ? null : s.currentProjectId,
+        }));
+      },
+      openProject: (id) => {
+        const project = get().projects.find((p) => p.id === id);
+        if (!project) return;
+        const config = applyProjectConfig(project);
+        set({
+          currentProjectId: id,
+          page: 'editor',
+          showMapView: false,
+          undoStack: [],
+          redoStack: [],
+          mapProvider: config.mapProvider,
+          amapMapType: config.amapMapType ?? 'normal',
+          amapShowRoadNet: config.amapShowRoadNet ?? false,
+          maplibreStyle: config.maplibreStyle ?? 'outdoor',
+          showContours: config.showContours ?? false,
+        });
+      },
+      closeProject: () => {
+        set({
+          page: 'landing',
+          currentProjectId: null,
+          map: null,
+          undoStack: [],
+        });
+      },
+      currentProject: () => {
+        const { projects, currentProjectId } = get();
+        return projects.find((p) => p.id === currentProjectId);
+      },
 
-  layers: [],
-  activeLayerId: null,
-  addLayer: (name, backgroundColor) => {
-    const id = genLayerId();
-    const layer: Layer = {
-      id,
-      name,
-      visible: true,
-      backgroundColor,
-      elements: [],
-    };
-    set((s) => ({
-      layers: [...s.layers, layer],
-      activeLayerId: id,
-    }));
-  },
-  removeLayer: (id) => {
-    set((s) => {
-      const layers = s.layers.filter((l) => l.id !== id);
-      return {
-        layers,
-        activeLayerId: s.activeLayerId === id
-          ? (layers.length > 0 ? layers[layers.length - 1].id : null)
-          : s.activeLayerId,
-      };
-    });
-  },
-  setActiveLayer: (id) => set({ activeLayerId: id }),
-  toggleLayerVisibility: (id) => {
-    set((s) => ({
-      layers: s.layers.map((l) =>
-        l.id === id ? { ...l, visible: !l.visible } : l
-      ),
-    }));
-  },
-  renameLayer: (id, name) => {
-    set((s) => ({
-      layers: s.layers.map((l) => (l.id === id ? { ...l, name } : l)),
-    }));
-  },
+      // Map instance (runtime only)
+      map: null,
+      setMap: (map) => set({ map }),
 
-  activeLayer: () => {
-    const { layers, activeLayerId } = get();
-    return layers.find((l) => l.id === activeLayerId);
-  },
+      // Map viewport persistence
+      mapViewport: { center: { lat: 39.90923, lng: 116.397428 }, zoom: 12 },
+      setMapViewport: (viewport) => set({ mapViewport: viewport }),
 
-  activeTool: 'pen',
-  setActiveTool: (tool) => set({ activeTool: tool }),
+      // Map engine settings
+      mapProvider: 'amap',
+      setMapProvider: (p) => set({ mapProvider: p }),
+      amapMapType: 'normal',
+      setAmapMapType: (t) => set({ amapMapType: t }),
+      amapShowRoadNet: true,
+      setAmapShowRoadNet: (s) => set({ amapShowRoadNet: s }),
+      maplibreStyle: 'outdoor',
+      setMaplibreStyle: (s) => set({ maplibreStyle: s }),
+      terrainEnabled: false,
+      setTerrainEnabled: (b) => set({ terrainEnabled: b }),
+      maplibrePitch: 0,
+      setMaplibrePitch: (p) => set({ maplibrePitch: p }),
+      showContours: false,
+      setShowContours: (b) => set({ showContours: b }),
 
-  // Pen style
-  strokeColor: '#ff0000',
-  strokeWidth: 3,
-  setStrokeColor: (color) => set({ strokeColor: color }),
-  setStrokeWidth: (width) => set({ strokeWidth: width }),
+      // Map view toggle
+      showMapView: false,
+      setShowMapView: (show) => set({ showMapView: show }),
 
-  // Highlighter style
-  highlighterColor: '#FFD700',
-  highlighterWidth: 20,
-  highlighterOpacity: 0.35,
-  setHighlighterColor: (color) => set({ highlighterColor: color }),
-  setHighlighterWidth: (width) => set({ highlighterWidth: width }),
-  setHighlighterOpacity: (opacity) => set({ highlighterOpacity: opacity }),
+      // Tool
+      activeTool: 'pen',
+      setActiveTool: (tool) => set({ activeTool: tool }),
 
-  // Eraser
-  eraserSize: 15,
-  setEraserSize: (size) => set({ eraserSize: size }),
+      // Pen style
+      strokeColor: '#ff0000',
+      strokeWidth: 3,
+      setStrokeColor: (color) => set({ strokeColor: color }),
+      setStrokeWidth: (width) => set({ strokeWidth: width }),
 
-  // Icon
-  selectedIcon: '📍',
-  setSelectedIcon: (icon) => set({ selectedIcon: icon }),
+      // Highlighter style
+      highlighterColor: '#FFD700',
+      highlighterWidth: 20,
+      highlighterOpacity: 0.35,
+      setHighlighterColor: (color) => set({ highlighterColor: color }),
+      setHighlighterWidth: (width) => set({ highlighterWidth: width }),
+      setHighlighterOpacity: (opacity) => set({ highlighterOpacity: opacity }),
 
-  addElement: (element) => {
-    const { activeLayerId } = get();
-    if (!activeLayerId) return;
-    set((s) => ({
-      layers: s.layers.map((l) =>
-        l.id === activeLayerId
-          ? { ...l, elements: [...l.elements, element] }
-          : l
-      ),
-      undoStack: [...s.undoStack, { layerId: activeLayerId, elementId: element.id }],
-    }));
-  },
-  removeElement: (elementId) => {
-    set((s) => ({
-      layers: s.layers.map((l) => ({
-        ...l,
-        elements: l.elements.filter((e) => e.id !== elementId),
-      })),
-    }));
-  },
-  updateElement: (elementId, updates) => {
-    set((s) => ({
-      layers: s.layers.map((l) => ({
-        ...l,
-        elements: l.elements.map((e) =>
-          e.id === elementId ? { ...e, ...updates } : e
-        ),
-      })),
-    }));
-  },
+      // Eraser
+      eraserSize: 15,
+      setEraserSize: (size) => set({ eraserSize: size }),
 
-  undoStack: [],
-  undo: () => {
-    const { undoStack, layers } = get();
-    if (undoStack.length === 0) return;
-    const last = undoStack[undoStack.length - 1];
-    set((s) => ({
-      layers: s.layers.map((l) => ({
-        ...l,
-        elements: l.elements.filter((e) => e.id !== last.elementId),
-      })),
-      undoStack: s.undoStack.slice(0, -1),
-    }));
-  },
-}));
+      // Icon
+      selectedIcon: '📍',
+      setSelectedIcon: (icon) => set({ selectedIcon: icon }),
+
+      // Terrain brush
+      selectedTerrainType: 'mountains',
+      setSelectedTerrainType: (type) => set({ selectedTerrainType: type }),
+      terrainBrushSize: 15,
+      setTerrainBrushSize: (size) => set({ terrainBrushSize: size }),
+
+      // Brush mode (unified)
+      brushMode: 'solid',
+      setBrushMode: (mode) => set({ brushMode: mode }),
+
+      // Eraser mode
+      eraserMode: 'click',
+      setEraserMode: (mode) => set({ eraserMode: mode }),
+
+      // Line width scaling
+      lineWidthMode: 'screen',
+      setLineWidthMode: (mode) => set({ lineWidthMode: mode }),
+
+      // Territory tool
+      territoryColor: '#C23A2B',
+      setTerritoryColor: (color) => set({ territoryColor: color }),
+
+      // Map opacity
+      mapOpacity: 1,
+      setMapOpacity: (opacity) => set({ mapOpacity: opacity }),
+
+      // Border
+      showBorder: false,
+      setShowBorder: (show) => set({ showBorder: show }),
+
+      // Export options
+      exportOptions: DEFAULT_EXPORT_OPTIONS,
+      setExportOptions: (opts) => set({ exportOptions: opts }),
+
+      // Elements
+      addElement: (element) => {
+        const { currentProjectId } = get();
+        if (!currentProjectId) return;
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === currentProjectId
+              ? { ...p, elements: [...p.elements, element], updatedAt: Date.now() }
+              : p
+          ),
+          undoStack: [...s.undoStack, { projectId: currentProjectId, element }],
+          redoStack: [],
+        }));
+      },
+      removeElement: (elementId) => {
+        set((s) => ({
+          projects: s.projects.map((p) => ({
+            ...p,
+            elements: p.elements.filter((e) => e.id !== elementId),
+          })),
+        }));
+      },
+      updateElement: (elementId, updates) => {
+        set((s) => ({
+          projects: s.projects.map((p) => ({
+            ...p,
+            elements: p.elements.map((e) =>
+              e.id === elementId ? { ...e, ...updates } : e
+            ),
+          })),
+        }));
+      },
+
+      // Undo / Redo
+      undoStack: [],
+      redoStack: [],
+      undo: () => {
+        const { undoStack } = get();
+        if (undoStack.length === 0) return;
+        const entry = undoStack[undoStack.length - 1];
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === entry.projectId
+              ? { ...p, elements: p.elements.filter((e) => e.id !== entry.element.id), updatedAt: Date.now() }
+              : p
+          ),
+          undoStack: s.undoStack.slice(0, -1),
+          redoStack: [...s.redoStack, entry],
+        }));
+      },
+      redo: () => {
+        const { redoStack } = get();
+        if (redoStack.length === 0) return;
+        const entry = redoStack[redoStack.length - 1];
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === entry.projectId
+              ? { ...p, elements: [...p.elements, entry.element], updatedAt: Date.now() }
+              : p
+          ),
+          redoStack: s.redoStack.slice(0, -1),
+          undoStack: [...s.undoStack, entry],
+        }));
+      },
+    }),
+    {
+      name: 'map-tracing-store',
+      partialize: (state) => ({
+        projects: state.projects,
+        currentProjectId: state.currentProjectId,
+        page: state.page,
+        showMapView: state.showMapView,
+        activeTool: state.activeTool,
+        mapViewport: state.mapViewport,
+        strokeColor: state.strokeColor,
+        strokeWidth: state.strokeWidth,
+        highlighterColor: state.highlighterColor,
+        highlighterWidth: state.highlighterWidth,
+        highlighterOpacity: state.highlighterOpacity,
+        eraserSize: state.eraserSize,
+        selectedIcon: state.selectedIcon,
+        selectedTerrainType: state.selectedTerrainType,
+        terrainBrushSize: state.terrainBrushSize,
+        brushMode: state.brushMode,
+        lineWidthMode: state.lineWidthMode,
+        territoryColor: state.territoryColor,
+        mapOpacity: state.mapOpacity,
+        showBorder: state.showBorder,
+        exportOptions: state.exportOptions,
+      }),
+    }
+  )
+);

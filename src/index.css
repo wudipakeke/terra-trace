@@ -7,6 +7,10 @@
 html, body, #root {
   width: 100%;
   height: 100%;
+}
+
+/* Editor mode: no scrolling */
+body.editor-mode, body.editor-mode #root {
   overflow: hidden;
 }
 
@@ -17,4 +21,22 @@ button:hover {
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Force pointer style for SVG interactive elements */
+svg {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Scrollbar styling for landing page */
+body::-webkit-scrollbar {
+  width: 6px;
+}
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+body::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
 }

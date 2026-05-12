@@ -4,20 +4,6 @@ export interface MapAdapter {
   getContainer(map: any): HTMLElement;
 }
 
-export const amapAdapter: MapAdapter = {
-  latLngToPixel(map: any, lat: number, lng: number) {
-    const pixel = (map as AMap.Map).lngLatToPixel(new AMap.LngLat(lng, lat));
-    return { x: pixel.getX(), y: pixel.getY() };
-  },
-  pixelToLatLng(map: any, x: number, y: number) {
-    const ll = (map as AMap.Map).pixelToLngLat(new AMap.Pixel(x, y));
-    return { lat: ll.getLat(), lng: ll.getLng() };
-  },
-  getContainer(map: any) {
-    return (map as AMap.Map).getContainer();
-  },
-};
-
 export const maplibreAdapter: MapAdapter = {
   latLngToPixel(map: any, lat: number, lng: number) {
     const pt = map.project([lng, lat]);
@@ -32,6 +18,6 @@ export const maplibreAdapter: MapAdapter = {
   },
 };
 
-export function getAdapter(provider: 'amap' | 'maplibre'): MapAdapter {
-  return provider === 'amap' ? amapAdapter : maplibreAdapter;
+export function getAdapter(): MapAdapter {
+  return maplibreAdapter;
 }

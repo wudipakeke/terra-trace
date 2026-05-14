@@ -1,0 +1,177 @@
+name: CD - Terra Trace Version Based Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+  workflow_dispatch:
+
+env:
+  NAMESPACE: mars-system
+  CLUSTER_NAME: mars-cluster
+
+jobs:
+  # ─── Job 1: 检测版本变更 ───
+  detect-version-changes:
+    runs-on: self-hosted
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Configure git to use SSH (HTTPS blocked by firewall)
+        run: |
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+      - name: Check version changes
+        id: check
+        run: |
+          CURRENT=$(cat package.json | jq -r '.version')
+          echo "Current version: $CURRENT"
+
+          git checkout HEAD~1 --quiet 2>/dev/null || true
+          PREVIOUS=$(cat package.json 2>/dev/null | jq -r '.version' || echo "0.0.0")
+          git checkout - --quiet 2>/dev/null || true
+
+          echo "Previous version: $PREVIOUS"
+
+          if [ "$CURRENT" != "$PREVIOUS" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "📦 Version changed: $PREVIOUS -> $CURRENT"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Version unchanged: $CURRENT"
+          fi
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+  # ─── Job 2: 构建与部署 ───
+  deploy:
+    needs: detect-version-changes
+    if: |
+      needs.detect-version-changes.outputs.changed == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git to use SSH (HTTPS blocked by firewall)
+        run: |
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+      - name: Build terra-trace image
+        run: |
+          VERSION=${{ needs.detect-version-changes.outputs.version }}
+          docker build \
+            --build-arg VITE_MAPTILER_API_KEY=${{ secrets.VITE_MAPTILER_API_KEY }} \
+            -t terra-trace:${VERSION} \
+            -t terra-trace:latest \
+            .
+
+      - name: Import image to k3d
+        run: |
+          VERSION=${{ needs.detect-version-changes.outputs.version }}
+          k3d image import terra-trace:${VERSION} terra-trace:latest -c ${{ env.CLUSTER_NAME }}
+
+      - name: Rollout restart
+        run: |
+          kubectl rollout restart deployment/terra-trace -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/terra-trace -n ${{ env.NAMESPACE }} --timeout=120s
+
+      - name: Health check
+        run: |
+          echo "=== Health check: terra-trace ==="
+          kubectl port-forward -n ${{ env.NAMESPACE }} service/terra-trace 8080:80 &
+          PORT_FORWARD_PID=$!
+          sleep 2
+          for i in $(seq 1 12); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ 2>/dev/null || echo "000")
+            if [ "$status" = "200" ]; then
+              echo "terra-trace OK (HTTP 200)"
+              kill $PORT_FORWARD_PID 2>/dev/null || true
+              exit 0
+            fi
+            echo "Attempt $i/12: not ready yet..."
+            sleep 5
+          done
+          kill $PORT_FORWARD_PID 2>/dev/null || true
+          echo "FAILED: terra-trace did not respond"
+          exit 1
+
+      - name: Cleanup
+        run: |
+          docker image prune -f
+          echo "=== Deploy complete ==="
+
+  # ─── Job 3: 发布总结 + 飞书通知 ───
+  release-summary:
+    needs: [detect-version-changes, deploy]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build summary
+        id: summary
+        run: |
+          COMMIT=$(git log --oneline -1 | cut -d' ' -f1)
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+
+          VERSION=${{ needs.detect-version-changes.outputs.version }}
+          RESULT=${{ needs.deploy.result }}
+
+          echo "## 📋 Terra Trace Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$RESULT" = "success" ]; then
+            echo "✅ **terra-trace** v${VERSION} - Released" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **terra-trace** v${VERSION} - Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "result=$RESULT" >> $GITHUB_OUTPUT
+
+      - name: Send Feishu notification
+        if: needs.deploy.result != 'skipped'
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
+        run: |
+          [ -z "$FEISHU_WEBHOOK_URL" ] && echo "FEISHU_WEBHOOK_URL 未配置，跳过通知" && exit 0
+
+          RESULT="${{ steps.summary.outputs.result }}"
+          COMMIT="${{ steps.summary.outputs.commit }}"
+          VERSION="${{ needs.detect-version-changes.outputs.version }}"
+
+          if [ "$RESULT" = "success" ]; then
+            COLOR="green"; STATUS_TEXT="✅ 部署成功"
+          else
+            COLOR="red"; STATUS_TEXT="❌ 部署失败"
+          fi
+
+          TIMESTAMP=$(date +%s)
+          KEY=$(printf '%s\n%s' "${TIMESTAMP}" "${FEISHU_WEBHOOK_SECRET}")
+          SIGN=$(openssl dgst -sha256 -hmac "${KEY}" -binary < /dev/null | base64 -w 0)
+
+          jq -n \
+            --arg timestamp "$TIMESTAMP" \
+            --arg sign "$SIGN" \
+            --arg color "$COLOR" \
+            --arg commit "$COMMIT" \
+            --arg version "$VERSION" \
+            --arg status "$STATUS_TEXT" \
+            '{
+              timestamp: $timestamp,
+              sign: $sign,
+              msg_type: "interactive",
+              card: {
+                config: { wide_screen_mode: true },
+                header: { title: { tag: "plain_text", content: "🚀 Terra Trace 部署通知" }, template: $color },
+                elements: [
+                  { tag: "div", text: { tag: "lark_md", content: ("**提交**: " + $commit + "\n**版本**: v" + $version + "\n**结果**: " + $status) } }
+                ]
+              }
+            }' | curl -s -X POST -H "Content-Type: application/json" -d @- "$FEISHU_WEBHOOK_URL"

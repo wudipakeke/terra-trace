@@ -24,14 +24,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Configure git to use SSH (HTTPS blocked by firewall)
-        run: |
-          git config --global url."git@github.com:".insteadOf "https://github.com/"
-
-      - name: Configure git to use SSH (HTTPS blocked by firewall)
-        run: |
-          git config --global url."git@github.com:".insteadOf "https://github.com/"
-
       - name: Check version changes
         id: check
         run: |
@@ -42,7 +34,8 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "📦 Manual trigger - version $CURRENT"
           else
-            git checkout HEAD~1 --quiet 2>/dev/null || true
+            # Use SSH for this specific checkout (HTTPS git ops are blocked by firewall)
+            git -c url."git@github.com:".insteadOf "https://github.com/" checkout HEAD~1 --quiet 2>/dev/null || true
             PREVIOUS=$(cat package.json 2>/dev/null | jq -r '.version' || echo "0.0.0")
             git checkout - --quiet 2>/dev/null || true
             echo "Previous version: $PREVIOUS"
@@ -64,10 +57,6 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure git to use SSH (HTTPS blocked by firewall)
-        run: |
-          git config --global url."git@github.com:".insteadOf "https://github.com/"
 
       - name: Build terra-trace image
         run: |

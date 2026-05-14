@@ -28,6 +28,10 @@ jobs:
         run: |
           git config --global url."git@github.com:".insteadOf "https://github.com/"
 
+      - name: Configure git to use SSH (HTTPS blocked by firewall)
+        run: |
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+
       - name: Check version changes
         id: check
         run: |

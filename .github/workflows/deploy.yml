@@ -139,10 +139,10 @@ jobs:
 
       - name: Send Feishu notification
         if: needs.deploy.result != 'skipped'
-        env:
-          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-          FEISHU_WEBHOOK_SECRET: ${{ secrets.FEISHU_WEBHOOK_SECRET }}
         run: |
+          FEISHU_WEBHOOK_URL=$(kubectl get secret feishu-webhook-config -n ${{ env.NAMESPACE }} -o jsonpath='{.data.FEISHU_WEBHOOK_URL}' | base64 -d)
+          FEISHU_WEBHOOK_SECRET=$(kubectl get secret feishu-webhook-config -n ${{ env.NAMESPACE }} -o jsonpath='{.data.FEISHU_WEBHOOK_SECRET}' | base64 -d)
+
           [ -z "$FEISHU_WEBHOOK_URL" ] && echo "FEISHU_WEBHOOK_URL 未配置，跳过通知" && exit 0
 
           RESULT="${{ steps.summary.outputs.result }}"

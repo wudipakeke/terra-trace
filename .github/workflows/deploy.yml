@@ -20,13 +20,13 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
       version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
       - name: Configure git to use SSH (HTTPS blocked by firewall)
         run: |
           git config --global url."git@github.com:".insteadOf "https://github.com/"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Check version changes
         id: check
@@ -108,6 +108,10 @@ jobs:
     if: always()
     runs-on: self-hosted
     steps:
+      - name: Configure git to use SSH (HTTPS blocked by firewall)
+        run: |
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+
       - uses: actions/checkout@v4
 
       - name: Build summary

@@ -85,9 +85,13 @@ jobs:
       - name: Health check
         run: |
           echo "=== Health check: terra-trace ==="
+          kubectl port-forward svc/terra-trace -n ${{ env.NAMESPACE }} 8080:80 &
+          PF_PID=$!
+          trap 'kill $PF_PID 2>/dev/null || true' EXIT
+          sleep 2
           for i in $(seq 1 12); do
             status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ 2>/dev/null || echo "000")
-            if [ "$status" != "000" ]; then
+            if [ "${status}" != "000" ] && [ "${status}" != "000000" ]; then
               echo "terra-trace OK (HTTP $status)"
               exit 0
             fi

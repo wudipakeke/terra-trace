@@ -12,7 +12,7 @@ export interface LoginResult {
 }
 
 export const authApi = {
-  getUrl: () => api.get<{ url: string }>('/auth/url'),
-  login: (code: string) => api.post<LoginResult>('/auth/login', { code }),
+  getUrl: () => api.get<{ url: string }>('/auth/url?app=terra'),
+  login: (code: string) => api.post<LoginResult>('/auth/login', { code, app: 'terra' }),
   getProfile: () => api.get<UserInfo>('/auth/me'),
 };

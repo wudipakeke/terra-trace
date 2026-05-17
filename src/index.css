@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -9,7 +13,6 @@ html, body, #root {
   height: 100%;
 }
 
-/* Editor mode: no scrolling */
 body.editor-mode, body.editor-mode #root {
   overflow: hidden;
 }
@@ -23,13 +26,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Force pointer style for SVG interactive elements */
 svg {
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* Scrollbar styling for landing page */
 body::-webkit-scrollbar {
   width: 6px;
 }

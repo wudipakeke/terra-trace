@@ -51,20 +51,20 @@ export default function AppHome() {
             释放你的想象力，用地图与文字构筑独一无二的世界
           </p>
           <div className="grid md:grid-cols-3 gap-8">
-            <div className="group p-8 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all hover:-translate-y-1 relative overflow-hidden">
-              <div className="absolute top-0 left-6 right-6 h-0.5 bg-gradient-to-r from-indigo-300 to-indigo-100 rounded-full" />
-              <div className="text-5xl mb-5">🗺️</div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-3">世界观地图</h3>
-              <p className="text-gray-500 leading-relaxed text-sm">
-                以真实地形图为底图，临摹绘制属于你的仙侠世界、奇幻大陆。支持画笔、纹理、图标等多种绘制工具。
-              </p>
-            </div>
             <div className="group p-8 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-amber-200 transition-all hover:-translate-y-1 relative overflow-hidden">
               <div className="absolute top-0 left-6 right-6 h-0.5 bg-gradient-to-r from-amber-300 to-amber-100 rounded-full" />
               <div className="text-5xl mb-5">📖</div>
               <h3 className="text-xl font-semibold text-gray-900 mb-3">小说创作</h3>
               <p className="text-gray-500 leading-relaxed text-sm">
                 分屏协作编辑器，边写故事边看地图。沉浸式写作体验，自动保存，轻松管理章节与角色设定。
+              </p>
+            </div>
+            <div className="group p-8 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all hover:-translate-y-1 relative overflow-hidden">
+              <div className="absolute top-0 left-6 right-6 h-0.5 bg-gradient-to-r from-indigo-300 to-indigo-100 rounded-full" />
+              <div className="text-5xl mb-5">🗺️</div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-3">世界观地图</h3>
+              <p className="text-gray-500 leading-relaxed text-sm">
+                以真实地形图为底图，临摹绘制属于你的仙侠世界、奇幻大陆。支持画笔、纹理、图标等多种绘制工具。
               </p>
             </div>
             <div className="group p-8 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-rose-200 transition-all hover:-translate-y-1 relative overflow-hidden">

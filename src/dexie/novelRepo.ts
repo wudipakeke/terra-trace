@@ -4,7 +4,13 @@ import { genId } from '../types/novel';
 
 // ---- Novels ----
 export async function listNovels(): Promise<NovelMeta[]> {
-  return db.novels.orderBy('updatedAt').reverse().toArray();
+  const all = await db.novels.orderBy('updatedAt').reverse().toArray();
+  return all.filter((n) => n.deletedAt == null);
+}
+
+export async function listTrashedNovels(): Promise<NovelMeta[]> {
+  const all = await db.novels.orderBy('updatedAt').reverse().toArray();
+  return all.filter((n) => n.deletedAt != null);
 }
 
 export async function getNovel(id: string): Promise<NovelMeta | undefined> {
@@ -22,6 +28,7 @@ export async function createNovel(title: string, author: string, genre: string):
     coverUrl: '',
     wordCount: 0,
     status: 'draft',
+    deletedAt: null,
     createdAt: now,
     updatedAt: now,
     serverId: null,
@@ -34,7 +41,18 @@ export async function updateNovel(id: string, updates: Partial<NovelMeta>): Prom
   await db.novels.update(id, { ...updates, updatedAt: Date.now() });
 }
 
+/** Soft delete: move to trash */
 export async function deleteNovel(id: string): Promise<void> {
+  await db.novels.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+}
+
+/** Restore from trash */
+export async function restoreNovel(id: string): Promise<void> {
+  await db.novels.update(id, { deletedAt: null, updatedAt: Date.now() });
+}
+
+/** Permanently delete novel and all related data */
+export async function permanentDeleteNovel(id: string): Promise<void> {
   await db.transaction('rw', [db.novels, db.chapters, db.characters, db.outlines, db.notes], async () => {
     await db.novels.delete(id);
     await db.chapters.where('novelId').equals(id).delete();
@@ -42,6 +60,16 @@ export async function deleteNovel(id: string): Promise<void> {
     await db.outlines.where('novelId').equals(id).delete();
     await db.notes.where('novelId').equals(id).delete();
   });
+}
+
+/** Delete trash older than 30 days */
+export async function cleanupExpiredTrash(): Promise<number> {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const expired = await db.novels.where('deletedAt').below(cutoff).toArray();
+  for (const novel of expired) {
+    await permanentDeleteNovel(novel.id);
+  }
+  return expired.length;
 }
 
 // ---- Chapters ----
@@ -119,6 +147,36 @@ export async function createCharacter(novelId: string, name: string, role: strin
 // ---- Outlines ----
 export async function listOutlines(novelId: string): Promise<Outline[]> {
   return db.outlines.where('novelId').equals(novelId).sortBy('order');
+}
+
+export async function createOutline(
+  novelId: string,
+  title: string,
+  content: string,
+  type: Outline['type'] = 'plot'
+): Promise<Outline> {
+  const outlines = await listOutlines(novelId);
+  const now = Date.now();
+  const outline: Outline = {
+    id: genId(),
+    novelId,
+    title,
+    content,
+    order: outlines.length + 1,
+    type,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.outlines.add(outline);
+  return outline;
+}
+
+export async function updateOutline(id: string, updates: Partial<Outline>): Promise<void> {
+  await db.outlines.update(id, { ...updates, updatedAt: Date.now() });
+}
+
+export async function deleteOutline(id: string): Promise<void> {
+  await db.outlines.delete(id);
 }
 
 // ---- Notes ----

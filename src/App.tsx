@@ -6,7 +6,6 @@ import { EditorPage } from './pages/EditorPage';
 import AppHome from './pages/AppHome';
 import { NovelList } from './pages/NovelList';
 import { NovelDetail } from './pages/NovelDetail';
-import { CreativeStudio } from './pages/CreativeStudio';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ActivitiesPage from './pages/ActivitiesPage';
@@ -57,7 +56,7 @@ function AppContent() {
     location.pathname === '/auth' ||
     location.pathname === '/login' ||
     location.pathname === '/register' ||
-    location.pathname.includes('/write/') ||
+    /^\/novel\/[^/]+$/.test(location.pathname) ||
     (onMapRoute && mapEditorActive);
 
   return (
@@ -77,7 +76,6 @@ function AppContent() {
         {/* Novel */}
         <Route path="/novel" element={<NovelList />} />
         <Route path="/novel/:id" element={<NovelDetail />} />
-        <Route path="/novel/:id/write/:chapterId" element={<CreativeStudio />} />
         <Route path="/novel/:id/map" element={<MapRoutes />} />
 
         {/* Auth */}

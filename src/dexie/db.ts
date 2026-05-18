@@ -28,4 +28,13 @@ db.version(2).stores({
   users: 'id, username, phone, feishuOpenId',
 });
 
+db.version(3).stores({
+  novels: 'id, title, createdAt, updatedAt, deletedAt, serverId',
+  chapters: 'id, novelId, order, serverId',
+  characters: 'id, novelId, name, role',
+  outlines: 'id, novelId, type, order',
+  notes: 'id, novelId, tags',
+  users: 'id, username, phone, feishuOpenId',
+});
+
 export default db;

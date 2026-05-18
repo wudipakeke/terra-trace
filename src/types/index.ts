@@ -14,6 +14,7 @@ export interface TracingProject {
   elements: DrawingElement[];
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number;
 }
 
 export type TerrainType = 'mountains' | 'large-river' | 'grassland' | 'forest' | 'ocean' | 'lake' | 'gobi' | 'desert';

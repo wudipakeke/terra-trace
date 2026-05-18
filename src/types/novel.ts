@@ -7,8 +7,13 @@ export interface NovelMeta {
   genre: string;
   description: string;
   coverUrl: string;
+  coverTextColor?: string;
+  coverSubtitle?: string;
+  coverLayout?: 'horizontal' | 'vertical';
+  coverAlign?: 'left' | 'center' | 'right';
   wordCount: number;
   status: 'draft' | 'active';
+  deletedAt: number | null;
   createdAt: number;
   updatedAt: number;
   serverId: number | null;

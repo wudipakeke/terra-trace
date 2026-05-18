@@ -18,6 +18,9 @@ interface MapStore {
   createProject: (name: string, mapType: ProjectMapType, backgroundColor: string) => string;
   updateProject: (id: string, updates: Partial<Pick<TracingProject, 'name' | 'backgroundColor'>>) => void;
   deleteProject: (id: string) => void;
+  restoreProject: (id: string) => void;
+  permanentDeleteProject: (id: string) => void;
+  cleanupExpiredTrashMaps: () => void;
   openProject: (id: string) => void;
   closeProject: () => void;
   currentProject: () => TracingProject | undefined;
@@ -174,8 +177,29 @@ export const useMapStore = create<MapStore>()(
       },
       deleteProject: (id) => {
         set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === id ? { ...p, deletedAt: Date.now(), updatedAt: Date.now() } : p
+          ),
+          currentProjectId: s.currentProjectId === id ? null : s.currentProjectId,
+        }));
+      },
+      restoreProject: (id) => {
+        set((s) => ({
+          projects: s.projects.map((p) =>
+            p.id === id ? { ...p, deletedAt: undefined, updatedAt: Date.now() } : p
+          ),
+        }));
+      },
+      permanentDeleteProject: (id) => {
+        set((s) => ({
           projects: s.projects.filter((p) => p.id !== id),
           currentProjectId: s.currentProjectId === id ? null : s.currentProjectId,
+        }));
+      },
+      cleanupExpiredTrashMaps: () => {
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        set((s) => ({
+          projects: s.projects.filter((p) => !(p.deletedAt && p.deletedAt < cutoff)),
         }));
       },
       openProject: (id) => {

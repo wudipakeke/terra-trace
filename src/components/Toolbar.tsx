@@ -83,6 +83,27 @@ export function Toolbar() {
 
       {/* Tool buttons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        {/* Base map toggle */}
+        <button
+          title="切换底图"
+          onClick={() => useMapStore.getState().setShowMapView(!useMapStore.getState().showMapView)}
+          style={{
+            width: 36,
+            height: 36,
+            border: 'none',
+            borderRadius: 6,
+            background: useMapStore.getState().showMapView ? '#1a73e8' : '#e8e8e8',
+            color: useMapStore.getState().showMapView ? '#fff' : '#999',
+            fontSize: 16,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: 4,
+          }}
+        >
+          🗺
+        </button>
         {tools.map((t) => (
           <button
             key={t.type}

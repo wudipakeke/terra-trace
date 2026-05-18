@@ -209,7 +209,7 @@ export const useMapStore = create<MapStore>()(
         set({
           currentProjectId: id,
           page: 'editor',
-          showMapView: false,
+          showMapView: true,
           undoStack: [],
           redoStack: [],
           mapProvider: config.mapProvider,

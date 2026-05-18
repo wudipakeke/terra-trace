@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { NovelMeta } from '../types/novel';
 import { NOVEL_GENRES } from '../types/novel';
@@ -6,6 +6,7 @@ import { listNovels, createNovel, deleteNovel, createChapter, updateNovel, listT
 import { useMapStore } from '../store/useMapStore';
 import type { ProjectMapType } from '../types';
 import { MAP_TYPES, ANCIENT_COLORS, INK_COLORS } from '../types';
+import { downloadSync, restoreFromSync } from '../utils/sync';
 
 type TabType = 'novels' | 'maps' | 'trash';
 
@@ -61,6 +62,28 @@ export default function StudioPage() {
   const [mapBorder, setMapBorder] = useState(false);
 
   const activeProjects = projects.filter((p) => !p.deletedAt);
+
+  // Auto-restore from cloud on first load
+  const syncRestoredRef = useRef(false);
+  useEffect(() => {
+    if (syncRestoredRef.current) return;
+    syncRestoredRef.current = true;
+    (async () => {
+      try {
+        const server = await downloadSync();
+        if (!server) return;
+        const lastRestore = localStorage.getItem('terra-sync-last-restore');
+        if (!lastRestore || new Date(lastRestore).getTime() < server.syncedAt.getTime()) {
+          await restoreFromSync(server.data);
+          localStorage.setItem('terra-sync-last-restore', server.syncedAt.toISOString());
+          // Reload novel list
+          setNovels(await listNovels());
+        }
+      } catch {
+        // Silently ignore sync restore errors
+      }
+    })();
+  }, []);
 
   const loadTrash = useCallback(async () => {
     setTrashedNovels(await listTrashedNovels());

@@ -126,6 +126,10 @@ export async function listCharacters(novelId: string): Promise<CharacterCard[]> 
   return db.characters.where('novelId').equals(novelId).toArray();
 }
 
+export async function deleteCharacter(id: string): Promise<void> {
+  await db.characters.delete(id);
+}
+
 export async function createCharacter(novelId: string, name: string, role: string): Promise<CharacterCard> {
   const now = Date.now();
   const card: CharacterCard = {
@@ -179,9 +183,40 @@ export async function deleteOutline(id: string): Promise<void> {
   await db.outlines.delete(id);
 }
 
+export async function reorderOutlines(novelId: string, outlineIds: string[]): Promise<void> {
+  await db.transaction('rw', [db.outlines], async () => {
+    for (let i = 0; i < outlineIds.length; i++) {
+      await db.outlines.update(outlineIds[i], { order: i + 1 });
+    }
+  });
+}
+
 // ---- Notes ----
 export async function listNotes(novelId: string): Promise<Note[]> {
   return db.notes.where('novelId').equals(novelId).toArray();
+}
+
+export async function createNote(novelId: string, title: string, content: string): Promise<Note> {
+  const now = Date.now();
+  const note: Note = {
+    id: genId(),
+    novelId,
+    title,
+    content,
+    tags: '',
+    createdAt: now,
+    updatedAt: now,
+  };
+  await db.notes.add(note);
+  return note;
+}
+
+export async function updateNote(id: string, updates: Partial<Note>): Promise<void> {
+  await db.notes.update(id, { ...updates, updatedAt: Date.now() });
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  await db.notes.delete(id);
 }
 
 // ---- Storage info ----
